@@ -1,0 +1,64 @@
+/// Self-signed certificate and private key for HTTPS test servers.
+///
+/// Generated with:
+/// ```
+/// openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
+///   -days 3650 -nodes -subj "/CN=localhost" \
+///   -addext "subjectAltName=IP:127.0.0.1,DNS:localhost"
+/// ```
+///
+/// Tests pair this with `allowSelfSigned: true` on the fetcher.
+library;
+
+const String testCertPem = '''
+-----BEGIN CERTIFICATE-----
+MIIDJTCCAg2gAwIBAgIUbA9/IGehJ9OuApUV03/PXixu4EYwDQYJKoZIhvcNAQEL
+BQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MDQyNzE4MTQ0MVoXDTM2MDQy
+NDE4MTQ0MVowFDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEF
+AAOCAQ8AMIIBCgKCAQEAnLGs4WDELzok/virc4S8H36jb5AoF4Z1NgEIjnOd/IFy
+Nm8AX/lTLRcedV4OdXigOVdFrGUXe25KNFrQKvYsU9bfeinWbMtSrxcQssJw9iWR
+/0p9GYE6hOBj1WsRpy8icozbHcCITx1sJSCa9rw0cERnKoAI/pieehagnsluIpn2
+H4T4TaZBcgbpuFbnDXMqkDGCFJ39hr8rBn+2QItDJbG9wqMIngXo25lZhSpkKnP4
+QhkHl1+5eaN9dPrT39QtOlTRyf8OhSt1gMxIZvRToL6YNF9j6oKiMkp6R/rfcXpG
+i2HDSrtvq52li3gLVgzPlpCFReNxeVTTxtMri+0COQIDAQABo28wbTAdBgNVHQ4E
+FgQUX9xDEcTRvlwN3zf35iy4lzx23wAwHwYDVR0jBBgwFoAUX9xDEcTRvlwN3zf3
+5iy4lzx23wAwDwYDVR0TAQH/BAUwAwEB/zAaBgNVHREEEzARhwR/AAABgglsb2Nh
+bGhvc3QwDQYJKoZIhvcNAQELBQADggEBACiS7XPUj1kFIz5EGqGrGoryCofw2dnC
+hxrJX68aoPDn9InQtCkzqcbO9DgGqt5OCkzK7/dnoVLe6S6l6vZIK9pBC7XvkatH
+sN2CF+v8YAO2z4U3/xOSWD8+rOhPUqDdf8nSXJdvk5YTsh1VPoQLzV24Sg4R3P4Y
+BhdFSZa21bZ13C2pCjAYZJpl0lzqnqksi3nqkCAzVkjr6TnMplwdRNRzfsrqsSn/
+LHRK9WYLv7E+pTAAmbPGF18fZEqemkWfEVzsDZ/0pyhhzn6+COKVAXRtIgtmzO5D
+wYIi7nO3fssSoJDYLz/ev6WaABpe5f26rCqX437xFVxB8UOw4N+MJd0=
+-----END CERTIFICATE-----
+''';
+
+const String testKeyPem = '''
+-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCcsazhYMQvOiT+
++KtzhLwffqNvkCgXhnU2AQiOc538gXI2bwBf+VMtFx51Xg51eKA5V0WsZRd7bko0
+WtAq9ixT1t96KdZsy1KvFxCywnD2JZH/Sn0ZgTqE4GPVaxGnLyJyjNsdwIhPHWwl
+IJr2vDRwRGcqgAj+mJ56FqCeyW4imfYfhPhNpkFyBum4VucNcyqQMYIUnf2GvysG
+f7ZAi0Mlsb3CowieBejbmVmFKmQqc/hCGQeXX7l5o310+tPf1C06VNHJ/w6FK3WA
+zEhm9FOgvpg0X2PqgqIySnpH+t9xekaLYcNKu2+rnaWLeAtWDM+WkIVF43F5VNPG
+0yuL7QI5AgMBAAECggEACqSo5QAhI0IUTDtQzf5ols0Pxd6pUnvAD2R/k8l3pDSY
+sOjWQi6ZvzjQSVGTstf4Lhzm7yBIuYoSwT6f4CMrfKBeOpqH5Yjj+1+aM0Iw0Q9Z
+PNlu6OIVuvvQ3CizIMN7WAOISJuQxqrtcxIlZHgBKdUDmufqdHyiWxGZZF+zOudW
+BnlxKaEdsNwxeJBKGhnqrvgbMOlLuLciUvNxHZDf5sXBwwCNwVAGnE1uk5eAQ64x
+FbOmRfOlRgscfMTZYiKTvuWMbmGlnhgHb36uxHHlfvz7+cuqBhredRXnTDIzk6+W
+UjP3GuCTRipvyMjgGWteMYh7TkV4VHZe6Eq+PE2g+QKBgQDUcRzFS+AEWqLZKjAQ
+bBpyUSmTtjHfKXHJaZ41UOwJOOlsyWwFIcFnnmPsSBeMS6P1XDGZeRp2r9nG1gXk
+xGpzj8Oa1hrPuBRV/ZbeqnUpZtjw2ersoOchIIDt/yxS3yeqQE7YMsv8FcPJpDb9
+YmSK+ViRJDb+zQIzgqKqxfnFhQKBgQC80mjLksuY58fEBnHoD8p7+9C+CCGbwvUL
+sJ6sunwIZscxYuXTRaWc2mgDOEvBof/mnCK5GpDfM3eAvf37nbrgfHUEO+qvtKQE
+iiGzgzzGSFyVc7jTUJJ4wxg6AzFN+tXYUM7s4qSnGWs3EhbDdggK0tXaYcBPtjPl
+JwYeFex+JQKBgQCequzGHult1xQSBoRnf5YxE5VuEYImHxoxSIU1ZP8l1C/jZH0d
+SBzfe1k+PIn56vTGaNlSuzScuLJ645b7SggHz7RUjNzxj5cAsqpgHAftqDcXjGr9
+2R9HirNBDnjYXHuPmQBKUYYw/UCB9fhsP3TAp4MSxG2e2RdvyX4c9kia0QKBgCRC
+X39gNBqrv6/D8RG4HpEKfT5Qv2ty162kAAR5VyIh4nR4Ylvczv287yZXJC0N199H
+8l8LW/CQqI0fbutnkaBUJgBnJR0SmkCI6gnX1M7azHSioUZq/YWVKUzSmiA4X+JH
+OkVBDI9OEUmk/pwQSWEStaBXDx//hB2oDcOvQBfFAoGABWt5ZPh5VOOwf5cyWBMd
+hJjAR8UlEeudYlCOHfm4ILkYaaTlpIYby/rtAOJl9lK0Tyi5I2/V7w7PskVI5kIq
+q7e6N9tt7IMzBuiyOMtFsACm6GVKafVi4oV34WJvRtFmvZgQe7cqLFoq5fqQ+f1Z
+6204cdrxSb5kYfEGvOxDRyo=
+-----END PRIVATE KEY-----
+''';

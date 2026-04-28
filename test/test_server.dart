@@ -7,7 +7,10 @@ library;
 import 'dart:io';
 import 'dart:isolate';
 
-/// Starts an HTTP file server in a separate isolate and returns the URL.
+import 'test_certs.dart';
+
+/// Starts an HTTP (or HTTPS) file server in a separate isolate and returns
+/// the URL.
 ///
 /// The server supports:
 /// - HEAD requests → 200 with Content-Length
@@ -16,6 +19,9 @@ import 'dart:isolate';
 ///
 /// For byte-buffer mode: pass [data] (serves raw bytes).
 /// For file mode: pass [filePath] (serves file from disk).
+///
+/// Pass `https: true` to serve over TLS using a self-signed cert from
+/// [testCertPem]/[testKeyPem].
 ///
 /// Call [TestServer.stop] to shut down.
 class TestServer {
@@ -27,13 +33,19 @@ class TestServer {
   TestServer._(this._isolate, this._controlPort, this.url, this.port);
 
   /// Start a test server serving [data] bytes.
-  static Future<TestServer> startWithData(List<int> data) async {
-    return _start({'type': 'data', 'data': data});
+  static Future<TestServer> startWithData(
+    List<int> data, {
+    bool https = false,
+  }) async {
+    return _start({'type': 'data', 'data': data, 'https': https});
   }
 
   /// Start a test server serving a file from [filePath].
-  static Future<TestServer> startWithFile(String filePath) async {
-    return _start({'type': 'file', 'path': filePath});
+  static Future<TestServer> startWithFile(
+    String filePath, {
+    bool https = false,
+  }) async {
+    return _start({'type': 'file', 'path': filePath, 'https': https});
   }
 
   static Future<TestServer> _start(Map<String, Object> config) async {
@@ -47,7 +59,8 @@ class TestServer {
     final msg = await receivePort.first as Map<String, Object>;
     final port = msg['port'] as int;
     final controlPort = msg['controlPort'] as SendPort;
-    final url = 'http://127.0.0.1:$port/test.db';
+    final scheme = (config['https'] as bool? ?? false) ? 'https' : 'http';
+    final url = '$scheme://127.0.0.1:$port/test.db';
 
     return TestServer._(isolate, controlPort, url, port);
   }
@@ -73,7 +86,16 @@ void _serverEntryPoint(Map<String, Object> config) async {
     fileBytes = config['data'] as List<int>;
   }
 
-  final server = await HttpServer.bind('127.0.0.1', 0);
+  final useHttps = config['https'] as bool? ?? false;
+  final HttpServer server;
+  if (useHttps) {
+    final ctx = SecurityContext(withTrustedRoots: false)
+      ..useCertificateChainBytes(testCertPem.codeUnits)
+      ..usePrivateKeyBytes(testKeyPem.codeUnits);
+    server = await HttpServer.bindSecure('127.0.0.1', 0, ctx);
+  } else {
+    server = await HttpServer.bind('127.0.0.1', 0);
+  }
 
   // Report port back to parent
   sendPort.send({

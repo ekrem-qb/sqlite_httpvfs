@@ -5,7 +5,7 @@ description: >
   sql.js-httpvfs.
 homepage: https://github.com/moham96/sqlite_httpvfs
 repository: https://github.com/moham96/sqlite_httpvfs
-version: 0.1.0
+version: 0.2.0
 
 environment:
   sdk: ^3.4.0
@@ -15,5 +15,8 @@ dependencies:
 
 dev_dependencies:
   test: ^1.24.0
-  shelf: ^1.4.0
-  shelf_static: ^1.1.0
+
+# The PEM blob in test/test_certs.dart is a self-signed cert generated for
+# loopback HTTPS unit tests — never used outside the test suite.
+false_secrets:
+  - /test/test_certs.dart

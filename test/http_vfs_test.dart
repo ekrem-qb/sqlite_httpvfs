@@ -204,6 +204,41 @@ void main() {
     });
   });
 
+  group('HttpVfs with IsolateFetcher', () {
+    late IsolateFetcher fetcher;
+
+    setUp(() async {
+      server = await TestServer.startWithFile(tempDbPath);
+      url = server.url;
+      fetcher = await IsolateFetcher.create();
+    });
+
+    tearDown(() async {
+      await fetcher.dispose();
+      await server.stop();
+    });
+
+    test('open and SELECT through isolate-bridged fetcher', () {
+      final vfsName = nextVfsName();
+      final vfs = HttpVfs(name: vfsName, fetcher: fetcher);
+      sqlite3.registerVirtualFileSystem(vfs);
+
+      try {
+        final db = sqlite3.open(url, vfs: vfsName, mode: OpenMode.readOnly);
+        final results = db.select('SELECT COUNT(*) as cnt FROM content');
+        expect(results.first['cnt'], 100);
+
+        final row = db.select(
+          'SELECT title, year FROM content WHERE id = 42',
+        );
+        expect(row.first['title'], 'Movie 42');
+        db.dispose();
+      } finally {
+        sqlite3.unregisterVirtualFileSystem(vfs);
+      }
+    });
+  });
+
   group('HttpVfs cache behavior', () {
     setUp(() async {
       server = await TestServer.startWithFile(tempDbPath);

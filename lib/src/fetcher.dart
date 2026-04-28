@@ -1,4 +1,5 @@
 import 'fetcher_curl.dart';
+import 'fetcher_isolate.dart';
 import 'fetcher_socket.dart';
 
 /// Abstract interface for synchronous HTTP range-request fetching.
@@ -39,14 +40,41 @@ class FetchException implements Exception {
       '${statusCode != null ? ' (HTTP $statusCode)' : ''}';
 }
 
-/// Creates an appropriate [SyncHttpFetcher] based on the URL scheme.
+/// Creates an appropriate [SyncHttpFetcher] synchronously based on the URL scheme.
 ///
 /// - `https://` → [CurlFetcher] (requires curl, desktop only)
 /// - `http://` → [SocketFetcher] (cross-platform, all native)
+///
+/// Prefer [createFetcherAsync] for HTTPS on iOS/Android — it returns an
+/// [IsolateFetcher] that uses platform-native TLS without depending on `curl`.
 SyncHttpFetcher createFetcher(String url) {
   final scheme = Uri.parse(url).scheme;
   if (scheme == 'https') {
     return CurlFetcher();
   }
   return SocketFetcher();
+}
+
+/// Creates an appropriate [SyncHttpFetcher] for [url], using [IsolateFetcher]
+/// for HTTPS so HTTPS works on every platform Dart runs on (iOS and Android
+/// included), without requiring `curl` to be installed.
+///
+/// - `https://` → [IsolateFetcher] (cross-platform, native TLS via `dart:io`)
+/// - `http://` → [SocketFetcher] (cross-platform, sync sockets)
+///
+/// The returned fetcher may hold a worker isolate; call `dispose()` on it
+/// (if it is an [IsolateFetcher]) when you're done.
+Future<SyncHttpFetcher> createFetcherAsync(
+  String url, {
+  Map<String, String>? defaultHeaders,
+  bool allowSelfSigned = false,
+}) async {
+  final scheme = Uri.parse(url).scheme;
+  if (scheme == 'https') {
+    return IsolateFetcher.create(
+      defaultHeaders: defaultHeaders,
+      allowSelfSigned: allowSelfSigned,
+    );
+  }
+  return SocketFetcher(defaultHeaders: defaultHeaders);
 }
