@@ -1,6 +1,8 @@
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:sqlite3/common.dart';
+import 'package:sqlite_httpvfs/src/http_vfs_config.dart';
 
 import 'fetcher.dart';
 import 'page_cache.dart';
@@ -18,6 +20,7 @@ class HttpVfsFile extends BaseVfsFile {
   final LruPageCache _cache;
   final ReadAheadStrategy _readAhead;
   final Map<String, String>? _headers;
+  final HttpVfsConfig? _config;
 
   /// Number of HTTP fetches performed (for diagnostics/testing).
   int fetchCount = 0;
@@ -29,10 +32,12 @@ class HttpVfsFile extends BaseVfsFile {
     required LruPageCache cache,
     required ReadAheadStrategy readAhead,
     Map<String, String>? headers,
+    HttpVfsConfig? config,
   })  : _fetcher = fetcher,
         _cache = cache,
         _readAhead = readAhead,
-        _headers = headers;
+        _headers = headers,
+        _config = config;
 
   /// The page cache used by this file handle.
   LruPageCache get cache => _cache;
@@ -44,10 +49,9 @@ class HttpVfsFile extends BaseVfsFile {
     }
 
     // Clamp read to file bounds
-    final bytesToRead =
-        (fileOffset + buffer.length > fileSize)
-            ? fileSize - fileOffset
-            : buffer.length;
+    final bytesToRead = (fileOffset + buffer.length > fileSize)
+        ? fileSize - fileOffset
+        : buffer.length;
 
     final pageSize = _cache.pageSize;
     var bufferPos = 0;
@@ -64,13 +68,45 @@ class HttpVfsFile extends BaseVfsFile {
         final remaining = bytesToRead - bufferPos;
         final plan = _readAhead.plan(currentOffset, remaining, fileSize);
 
-        final data = _fetcher.fetchRange(
-          url,
-          plan.fetchStart,
-          plan.fetchEnd,
-          headers: _headers,
-        );
-        fetchCount++;
+        final List<int> data;
+        final cfg = _config;
+        if (cfg != null && cfg.serverMode == 'chunked') {
+          final serverChunkSize = cfg.serverChunkSize!;
+          final List<int> mergedData = [];
+
+          for (var chunkId = plan.fetchStart ~/ serverChunkSize;
+              chunkId <= plan.fetchEnd ~/ serverChunkSize;
+              chunkId++) {
+            final chunkStartOffset = chunkId * serverChunkSize;
+            final chunkEndOffset = chunkStartOffset + serverChunkSize - 1;
+
+            final fetchStartInDb = max(plan.fetchStart, chunkStartOffset);
+            final fetchEndInDb = min(plan.fetchEnd, chunkEndOffset);
+
+            final fromByte = fetchStartInDb - chunkStartOffset;
+            final toByte = fetchEndInDb - chunkStartOffset;
+
+            final chunkUrl = _buildChunkUrl(cfg, chunkId);
+            final chunkData = _fetcher.fetchRange(
+              chunkUrl,
+              fromByte,
+              toByte,
+              headers: _headers,
+            );
+            fetchCount++;
+            mergedData.addAll(chunkData);
+          }
+          data = mergedData;
+        } else {
+          final fetchUrl = _buildFullUrl();
+          data = _fetcher.fetchRange(
+            fetchUrl,
+            plan.fetchStart,
+            plan.fetchEnd,
+            headers: _headers,
+          );
+          fetchCount++;
+        }
 
         // Store fetched data in cache
         _cache.putBulk(plan.fetchStart, data);
@@ -85,10 +121,9 @@ class HttpVfsFile extends BaseVfsFile {
 
       // Copy from page into buffer
       final availableInPage = page.length - offsetInPage;
-      final toCopy =
-          (bytesToRead - bufferPos) < availableInPage
-              ? (bytesToRead - bufferPos)
-              : availableInPage;
+      final toCopy = (bytesToRead - bufferPos) < availableInPage
+          ? (bytesToRead - bufferPos)
+          : availableInPage;
 
       for (var i = 0; i < toCopy; i++) {
         buffer[bufferPos + i] = page[offsetInPage + i];
@@ -99,6 +134,21 @@ class HttpVfsFile extends BaseVfsFile {
     }
 
     return bytesToRead;
+  }
+
+  String _buildChunkUrl(HttpVfsConfig cfg, int chunkId) {
+    final suffix = cfg.cacheBust != null ? '?cb=${cfg.cacheBust}' : '';
+    final chunkStr = chunkId.toString().padLeft(cfg.suffixLength!, '0');
+    return '${cfg.urlPrefix}$chunkStr$suffix';
+  }
+
+  String _buildFullUrl() {
+    final cfg = _config;
+    if (cfg != null && cfg.serverMode == 'full') {
+      final suffix = cfg.cacheBust != null ? '?cb=${cfg.cacheBust}' : '';
+      return '${cfg.url}$suffix';
+    }
+    return url;
   }
 
   @override
