@@ -48,6 +48,14 @@ class TestServer {
     return _start({'type': 'file', 'path': filePath, 'https': https});
   }
 
+  /// Start a test server serving files from [dirPath] directory.
+  static Future<TestServer> startWithDirectory(
+    String dirPath, {
+    bool https = false,
+  }) async {
+    return _start({'type': 'directory', 'path': dirPath, 'https': https});
+  }
+
   static Future<TestServer> _start(Map<String, Object> config) async {
     final receivePort = ReceivePort();
     final isolate = await Isolate.spawn(
@@ -60,7 +68,9 @@ class TestServer {
     final port = msg['port'] as int;
     final controlPort = msg['controlPort'] as SendPort;
     final scheme = (config['https'] as bool? ?? false) ? 'https' : 'http';
-    final url = '$scheme://127.0.0.1:$port/test.db';
+    final url = config['type'] == 'directory'
+        ? '$scheme://127.0.0.1:$port/'
+        : '$scheme://127.0.0.1:$port/test.db';
 
     return TestServer._(isolate, controlPort, url, port);
   }
@@ -79,10 +89,13 @@ void _serverEntryPoint(Map<String, Object> config) async {
   final sendPort = config['sendPort'] as SendPort;
   final controlPort = ReceivePort();
 
-  List<int> fileBytes;
+  final isDirectory = config['type'] == 'directory';
+  final dirPath = isDirectory ? config['path'] as String : null;
+
+  List<int>? fileBytes;
   if (config['type'] == 'file') {
     fileBytes = File(config['path'] as String).readAsBytesSync();
-  } else {
+  } else if (config['type'] == 'data') {
     fileBytes = config['data'] as List<int>;
   }
 
@@ -113,9 +126,26 @@ void _serverEntryPoint(Map<String, Object> config) async {
   await for (final request in server) {
     final response = request.response;
 
+    List<int> currentBytes;
+    if (isDirectory) {
+      var reqPath = request.uri.path;
+      if (reqPath.startsWith('/')) {
+        reqPath = reqPath.substring(1);
+      }
+      final file = File('$dirPath/$reqPath');
+      if (!file.existsSync()) {
+        response.statusCode = 404;
+        await response.close();
+        continue;
+      }
+      currentBytes = file.readAsBytesSync();
+    } else {
+      currentBytes = fileBytes!;
+    }
+
     if (request.method == 'HEAD') {
       response.statusCode = 200;
-      response.headers.contentLength = fileBytes.length;
+      response.headers.contentLength = currentBytes.length;
       response.headers.set('accept-ranges', 'bytes');
       await response.close();
       continue;
@@ -127,15 +157,15 @@ void _serverEntryPoint(Map<String, Object> config) async {
       if (match != null) {
         final start = int.parse(match.group(1)!);
         final end = int.parse(match.group(2)!);
-        final clampedEnd = end >= fileBytes.length ? fileBytes.length - 1 : end;
+        final clampedEnd = end >= currentBytes.length ? currentBytes.length - 1 : end;
 
         response.statusCode = 206;
         response.headers.contentLength = clampedEnd - start + 1;
         response.headers.set(
           'content-range',
-          'bytes $start-$clampedEnd/${fileBytes.length}',
+          'bytes $start-$clampedEnd/${currentBytes.length}',
         );
-        response.add(fileBytes.sublist(start, clampedEnd + 1));
+        response.add(currentBytes.sublist(start, clampedEnd + 1));
         await response.close();
         continue;
       }
@@ -143,8 +173,8 @@ void _serverEntryPoint(Map<String, Object> config) async {
 
     // Full file response
     response.statusCode = 200;
-    response.headers.contentLength = fileBytes.length;
-    response.add(fileBytes);
+    response.headers.contentLength = currentBytes.length;
+    response.add(currentBytes);
     await response.close();
   }
 }
