@@ -268,6 +268,7 @@ Future<void> _handleRequest(
 
     request.followRedirects = true;
     request.maxRedirects = 5;
+    request.headers.set('Accept-Encoding', 'identity');
     rawHeaders.forEach((k, v) => request.headers.set(k, v.toString()));
 
     final response = await request.close().timeout(timeout);
