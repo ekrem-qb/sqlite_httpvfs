@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:sqlite3/sqlite3.dart';
 import 'package:sqlite_httpvfs/sqlite_httpvfs.dart';
+import 'package:sqlite_httpvfs/src/http_vfs_config.dart';
 import 'package:test/test.dart';
 
 import 'test_server.dart';
@@ -289,6 +290,114 @@ void main() {
       final fetcher = SocketFetcher();
       final reportedSize = fetcher.fetchFileSize(url);
       expect(reportedSize, actualSize);
+    });
+  });
+
+  group('HttpVfs chunked mode', () {
+    late Directory chunkedDir;
+    late TestServer chunkedServer;
+
+    setUp(() async {
+      chunkedDir = Directory.systemTemp.createTempSync('httpvfs_chunked_');
+
+      final dbFile = File(tempDbPath);
+      final dbBytes = dbFile.readAsBytesSync();
+      final dbLength = dbBytes.length;
+      final serverChunkSize = 16384;
+
+      // Write chunks
+      var offset = 0;
+      var chunkId = 0;
+      while (offset < dbLength) {
+        final end = offset + serverChunkSize < dbLength ? offset + serverChunkSize : dbLength;
+        final chunkBytes = dbBytes.sublist(offset, end);
+        final chunkStr = chunkId.toString().padLeft(4, '0');
+        File('${chunkedDir.path}/db.sqlite3.$chunkStr').writeAsBytesSync(chunkBytes);
+        offset += serverChunkSize;
+        chunkId++;
+      }
+
+      // Write config.json
+      final configJson = '''
+      {
+        "serverMode": "chunked",
+        "requestChunkSize": 4096,
+        "serverChunkSize": 16384,
+        "databaseLengthBytes": $dbLength,
+        "urlPrefix": "db.sqlite3.",
+        "suffixLength": 4
+      }
+      ''';
+      File('${chunkedDir.path}/config.json').writeAsStringSync(configJson);
+
+      chunkedServer = await TestServer.startWithDirectory(chunkedDir.path);
+    });
+
+    tearDown(() async {
+      await chunkedServer.stop();
+      try {
+        chunkedDir.deleteSync(recursive: true);
+      } catch (_) {}
+    });
+
+    test('open and query chunked database via configUrl in VFS constructor', () {
+      final vfsName = nextVfsName();
+      final configUrl = '${chunkedServer.url}config.json';
+      final vfs = HttpVfs(
+        name: vfsName,
+        fetcher: SocketFetcher(),
+        configUrl: configUrl,
+      );
+      sqlite3.registerVirtualFileSystem(vfs);
+
+      try {
+        final db = sqlite3.open('any_name_here', vfs: vfsName, mode: OpenMode.readOnly);
+        final results = db.select('SELECT COUNT(*) as cnt FROM content');
+        expect(results.first['cnt'], 100);
+
+        final row = db.select('SELECT id, title, year FROM content WHERE id = 1');
+        expect(row.length, 1);
+        expect(row.first['title'], 'Movie 1');
+        expect(row.first['year'], 2001);
+
+        db.dispose();
+      } finally {
+        sqlite3.unregisterVirtualFileSystem(vfs);
+      }
+    });
+
+    test('open and query chunked database via inline config in VFS constructor', () {
+      final vfsName = nextVfsName();
+      final dbFile = File(tempDbPath);
+      final dbLength = dbFile.lengthSync();
+
+      final vfs = HttpVfs(
+        name: vfsName,
+        fetcher: SocketFetcher(),
+        config: HttpVfsConfig(
+          serverMode: 'chunked',
+          requestChunkSize: 4096,
+          serverChunkSize: 16384,
+          databaseLengthBytes: dbLength,
+          urlPrefix: '${chunkedServer.url}db.sqlite3.',
+          suffixLength: 4,
+        ),
+      );
+      sqlite3.registerVirtualFileSystem(vfs);
+
+      try {
+        final db = sqlite3.open('any_name_here', vfs: vfsName, mode: OpenMode.readOnly);
+        final results = db.select('SELECT COUNT(*) as cnt FROM content');
+        expect(results.first['cnt'], 100);
+
+        final row = db.select('SELECT id, title, year FROM content WHERE id = 42');
+        expect(row.length, 1);
+        expect(row.first['title'], 'Movie 42');
+
+        db.dispose();
+      } finally {
+        sqlite3.unregisterVirtualFileSystem(vfs);
+      }
     });
   });
 }
