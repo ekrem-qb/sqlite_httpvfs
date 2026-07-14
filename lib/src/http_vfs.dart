@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:sqlite3/common.dart';
+import 'package:sqlite_httpvfs/src/http_vfs_config.dart';
 
 import 'constants.dart';
 import 'fetcher.dart';
@@ -46,6 +49,14 @@ base class HttpVfs extends BaseVirtualFileSystem {
   /// into the actual HTTP URL to fetch. Defaults to identity (filename = URL).
   final String Function(String)? urlResolver;
 
+  /// Optional URL pointing to a JSON configuration file.
+  final String? configUrl;
+
+  /// Optional inline configuration.
+  final HttpVfsConfig? config;
+
+  HttpVfsConfig? _cachedConfig;
+
   HttpVfs({
     String name = 'httpvfs',
     this.pageSize = defaultPageSize,
@@ -54,7 +65,13 @@ base class HttpVfs extends BaseVirtualFileSystem {
     this.defaultHeaders,
     this.fetcher,
     this.urlResolver,
-  }) : super(name: name);
+    this.configUrl,
+    this.config,
+  }) : super(name: name) {
+    if (config != null) {
+      _cachedConfig = config;
+    }
+  }
 
   @override
   XOpenResult xOpen(Sqlite3Filename path, int flags) {
@@ -66,24 +83,76 @@ base class HttpVfs extends BaseVirtualFileSystem {
     }
 
     final url = urlResolver != null ? urlResolver!(rawPath) : rawPath;
-    final httpFetcher = fetcher ?? createFetcher(url);
 
-    // Get file size via HEAD request
-    final fileSize = httpFetcher.fetchFileSize(url, headers: defaultHeaders);
+    HttpVfsConfig? activeConfig = _cachedConfig;
+    final effectiveConfigUrl =
+        configUrl ?? (rawPath.endsWith('.json') ? rawPath : null);
 
-    final cache = LruPageCache(maxPages: maxCachePages, pageSize: pageSize);
+    if (effectiveConfigUrl != null && _cachedConfig == null) {
+      final configFetcher = fetcher ?? createFetcher(effectiveConfigUrl);
+      final configSize = configFetcher.fetchFileSize(effectiveConfigUrl,
+          headers: defaultHeaders);
+      final configBytes = configFetcher.fetchRange(
+          effectiveConfigUrl, 0, configSize - 1,
+          headers: defaultHeaders);
+      final configString = utf8.decode(configBytes);
+      final jsonMap = json.decode(configString) as Map<String, dynamic>;
+      final config = HttpVfsConfig.fromJson(jsonMap);
+
+      final configUri = Uri.parse(effectiveConfigUrl);
+      _cachedConfig = HttpVfsConfig(
+        serverMode: config.serverMode,
+        requestChunkSize: config.requestChunkSize,
+        cacheBust: config.cacheBust,
+        url: config.url != null
+            ? configUri.resolve(config.url!).toString()
+            : null,
+        urlPrefix: config.urlPrefix != null
+            ? configUri.resolve(config.urlPrefix!).toString()
+            : null,
+        serverChunkSize: config.serverChunkSize,
+        databaseLengthBytes: config.databaseLengthBytes,
+        suffixLength: config.suffixLength,
+      );
+      activeConfig = _cachedConfig;
+    }
+
+    final String targetUrl;
+    if (activeConfig != null) {
+      if (activeConfig.serverMode == 'chunked') {
+        targetUrl = activeConfig.urlPrefix!;
+      } else {
+        targetUrl = activeConfig.url!;
+      }
+    } else {
+      targetUrl = url;
+    }
+
+    final httpFetcher = fetcher ?? createFetcher(targetUrl);
+
+    final int fileSize;
+    if (activeConfig != null && activeConfig.serverMode == 'chunked') {
+      fileSize = activeConfig.databaseLengthBytes!;
+    } else {
+      fileSize = httpFetcher.fetchFileSize(targetUrl, headers: defaultHeaders);
+    }
+
+    final actualPageSize = activeConfig?.requestChunkSize ?? pageSize;
+    final cache =
+        LruPageCache(maxPages: maxCachePages, pageSize: actualPageSize);
     final readAhead = ReadAheadStrategy(
       maxReadAheadPages: maxReadAheadPages,
-      pageSize: pageSize,
+      pageSize: actualPageSize,
     );
 
     final vfsFile = HttpVfsFile(
-      url: url,
+      url: targetUrl,
       fileSize: fileSize,
       fetcher: httpFetcher,
       cache: cache,
       readAhead: readAhead,
       headers: defaultHeaders,
+      config: activeConfig,
     );
 
     return (
