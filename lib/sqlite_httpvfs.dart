@@ -21,10 +21,8 @@
 library;
 
 export 'src/constants.dart';
+export 'src/database_async_wrapper.dart';
 export 'src/fetcher.dart';
-export 'src/fetcher_curl.dart';
-export 'src/fetcher_isolate.dart';
-export 'src/fetcher_socket.dart';
 export 'src/http_vfs.dart';
 export 'src/http_vfs_file.dart';
 export 'src/page_cache.dart';
