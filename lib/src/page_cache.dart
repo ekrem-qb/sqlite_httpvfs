@@ -17,7 +17,7 @@ class LruPageCache {
 
   /// Internal storage: offset → page data. LinkedHashMap preserves insertion
   /// order; we remove and re-insert on access to maintain LRU ordering.
-  final LinkedHashMap<int, Uint8List> _pages = LinkedHashMap<int, Uint8List>();
+  final _pages = LinkedHashMap<int, Uint8List>();
 
   /// Number of cache hits (for diagnostics).
   int hits = 0;
@@ -69,7 +69,7 @@ class LruPageCache {
   ///
   /// Splits [data] into page-sized chunks and caches each one. Handles
   /// partial trailing pages (last page of a file may be shorter).
-  void putBulk(int startOffset, List<int> data) {
+  void putBulk(int startOffset, Uint8List data) {
     var offset = startOffset;
     var pos = 0;
 
@@ -77,12 +77,7 @@ class LruPageCache {
       final remaining = data.length - pos;
       final chunkSize = remaining < pageSize ? remaining : pageSize;
 
-      final page = Uint8List(chunkSize);
-      for (var i = 0; i < chunkSize; i++) {
-        page[i] = data[pos + i];
-      }
-
-      put(offset, page);
+      put(offset, data.sublist(pos, pos + chunkSize));
       offset += pageSize;
       pos += chunkSize;
     }

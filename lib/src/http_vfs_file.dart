@@ -7,6 +7,7 @@ import 'package:sqlite_httpvfs/src/http_vfs_config.dart';
 import 'fetcher.dart';
 import 'page_cache.dart';
 import 'read_ahead.dart';
+import 'request.dart';
 
 /// A VFS file handle backed by HTTP range requests.
 ///
@@ -16,11 +17,12 @@ import 'read_ahead.dart';
 class HttpVfsFile extends BaseVfsFile {
   final String url;
   final int fileSize;
-  final SyncHttpFetcher _fetcher;
+  final AsyncHttpFetcher _fetcher;
   final LruPageCache _cache;
   final ReadAheadStrategy _readAhead;
   final Map<String, String>? _headers;
   final HttpVfsConfig? _config;
+  final Uri? _configUri;
 
   /// Number of HTTP fetches performed (for diagnostics/testing).
   int fetchCount = 0;
@@ -28,16 +30,18 @@ class HttpVfsFile extends BaseVfsFile {
   HttpVfsFile({
     required this.url,
     required this.fileSize,
-    required SyncHttpFetcher fetcher,
+    required AsyncHttpFetcher fetcher,
     required LruPageCache cache,
     required ReadAheadStrategy readAhead,
     Map<String, String>? headers,
     HttpVfsConfig? config,
+    Uri? configUri,
   })  : _fetcher = fetcher,
         _cache = cache,
         _readAhead = readAhead,
         _headers = headers,
-        _config = config;
+        _config = config,
+        _configUri = configUri;
 
   /// The page cache used by this file handle.
   LruPageCache get cache => _cache;
@@ -68,43 +72,31 @@ class HttpVfsFile extends BaseVfsFile {
         final remaining = bytesToRead - bufferPos;
         final plan = _readAhead.plan(currentOffset, remaining, fileSize);
 
-        final List<int> data;
+        final Uint8List data;
         final cfg = _config;
         if (cfg != null && cfg.serverMode == 'chunked') {
+          final keys = _preRegisterChunkedRanges(cfg, plan);
           final serverChunkSize = cfg.serverChunkSize!;
-          final List<int> mergedData = [];
+          final mergedData = Uint8List((plan.fetchEnd - plan.fetchStart) + 1);
+          var mergedDataCursor = 0;
 
-          for (var chunkId = plan.fetchStart ~/ serverChunkSize;
+          for (var i = 0, chunkId = plan.fetchStart ~/ serverChunkSize;
               chunkId <= plan.fetchEnd ~/ serverChunkSize;
-              chunkId++) {
-            final chunkStartOffset = chunkId * serverChunkSize;
-            final chunkEndOffset = chunkStartOffset + serverChunkSize - 1;
-
-            final fetchStartInDb = max(plan.fetchStart, chunkStartOffset);
-            final fetchEndInDb = min(plan.fetchEnd, chunkEndOffset);
-
-            final fromByte = fetchStartInDb - chunkStartOffset;
-            final toByte = fetchEndInDb - chunkStartOffset;
-
-            final chunkUrl = _buildChunkUrl(cfg, chunkId);
-            final chunkData = _fetcher.fetchRange(
-              chunkUrl,
-              fromByte,
-              toByte,
-              headers: _headers,
-            );
+              i++, chunkId++) {
+            final chunkData = _fetcher.fetchRange(keys[i]);
             fetchCount++;
-            mergedData.addAll(chunkData);
+            mergedData.setAll(mergedDataCursor, chunkData);
+            mergedDataCursor += chunkData.length;
           }
           data = mergedData;
         } else {
           final fetchUrl = _buildFullUrl();
-          data = _fetcher.fetchRange(
-            fetchUrl,
-            plan.fetchStart,
-            plan.fetchEnd,
-            headers: _headers,
-          );
+          data = _fetcher.fetchRange((
+            url: fetchUrl,
+            start: plan.fetchStart,
+            end: plan.fetchEnd,
+            headers: _headers != null ? RequestHeaders(_headers) : null,
+          ));
           fetchCount++;
         }
 
@@ -125,9 +117,11 @@ class HttpVfsFile extends BaseVfsFile {
           ? (bytesToRead - bufferPos)
           : availableInPage;
 
-      for (var i = 0; i < toCopy; i++) {
-        buffer[bufferPos + i] = page[offsetInPage + i];
-      }
+      buffer.setRange(
+        bufferPos,
+        bufferPos + toCopy,
+        Uint8List.sublistView(page, offsetInPage, offsetInPage + toCopy),
+      );
 
       bufferPos += toCopy;
       currentOffset += toCopy;
@@ -136,10 +130,39 @@ class HttpVfsFile extends BaseVfsFile {
     return bytesToRead;
   }
 
+  List<RangeRequest> _preRegisterChunkedRanges(
+    HttpVfsConfig cfg,
+    ({int fetchStart, int fetchEnd}) plan,
+  ) {
+    final serverChunkSize = cfg.serverChunkSize!;
+    final keys = <RangeRequest>[];
+    for (var chunkId = plan.fetchStart ~/ serverChunkSize;
+        chunkId <= plan.fetchEnd ~/ serverChunkSize;
+        chunkId++) {
+      final chunkStartOffset = chunkId * serverChunkSize;
+      final chunkEndOffset = chunkStartOffset + serverChunkSize - 1;
+
+      final fetchStartInDb = max(plan.fetchStart, chunkStartOffset);
+      final fetchEndInDb = min(plan.fetchEnd, chunkEndOffset);
+
+      final fromByte = fetchStartInDb - chunkStartOffset;
+      final toByte = fetchEndInDb - chunkStartOffset;
+
+      final chunkUrl = _buildChunkUrl(cfg, chunkId);
+      keys.add(_fetcher.preRegisterRange(
+        chunkUrl,
+        fromByte,
+        toByte,
+        headers: _headers,
+      ));
+    }
+    return keys;
+  }
+
   String _buildChunkUrl(HttpVfsConfig cfg, int chunkId) {
     final suffix = cfg.cacheBust != null ? '?cb=${cfg.cacheBust}' : '';
     final chunkStr = chunkId.toString().padLeft(cfg.suffixLength!, '0');
-    return '${cfg.urlPrefix}$chunkStr$suffix';
+    return '${_configUri?.resolve(cfg.urlPrefix ?? "")}$chunkStr$suffix';
   }
 
   String _buildFullUrl() {

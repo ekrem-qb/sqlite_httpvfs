@@ -26,6 +26,9 @@ class ReadAheadStrategy {
   /// Count of consecutive sequential reads.
   int _sequentialHits = 0;
 
+  /// The end byte of the last planned range.
+  int _lastPlanEnd = -1;
+
   ReadAheadStrategy({
     this.maxReadAheadPages = defaultMaxReadAheadPages,
     required this.pageSize,
@@ -41,11 +44,38 @@ class ReadAheadStrategy {
   /// When sequential access is detected, `fetchEnd` extends beyond the
   /// requested range to prefetch upcoming pages.
   ({int fetchStart, int fetchEnd}) plan(int offset, int length, int fileSize) {
-    // Detect sequential access: current read starts where last read ended
-    final expectedNext = _lastOffset + _lastLength;
-    if (_lastOffset >= 0 && offset == expectedNext) {
+    if (offset == _lastOffset && length == _lastLength) {
+      // This is a retry of the exact same read after a cache miss/abort.
+      // Do not update state, just return the previously calculated planned range.
+      final fetchStart = (offset ~/ pageSize) * pageSize;
+      final lastByteNeeded = offset + length - 1;
+      final lastPageStart = (lastByteNeeded ~/ pageSize) * pageSize;
+      var fetchEnd = lastPageStart + pageSize - 1;
+
+      if (_sequentialHits >= readAheadThreshold) {
+        final extraPages = min(
+          maxReadAheadPages,
+          1 << (_sequentialHits - readAheadThreshold),
+        );
+        fetchEnd = fetchEnd + (extraPages * pageSize);
+      }
+      if (fetchEnd >= fileSize) {
+        fetchEnd = fileSize - 1;
+      }
+      return (fetchStart: fetchStart, fetchEnd: fetchEnd);
+    }
+
+    // Detect sequential access: current read starts where last read ended OR
+    // where the last planned read-ahead range ended.
+    final expectedNextFromLastRead = _lastOffset + _lastLength;
+    final expectedNextFromLastPlan = _lastPlanEnd + 1;
+
+    final isSequential = (_lastOffset >= 0 && offset == expectedNextFromLastRead) ||
+        (_lastPlanEnd >= 0 && offset == expectedNextFromLastPlan);
+
+    if (isSequential) {
       _sequentialHits++;
-    } else if (_lastOffset >= 0 && offset != expectedNext) {
+    } else {
       _sequentialHits = 0;
     }
 
@@ -76,6 +106,7 @@ class ReadAheadStrategy {
       fetchEnd = fileSize - 1;
     }
 
+    _lastPlanEnd = fetchEnd;
     return (fetchStart: fetchStart, fetchEnd: fetchEnd);
   }
 
@@ -84,5 +115,6 @@ class ReadAheadStrategy {
     _lastOffset = -1;
     _lastLength = 0;
     _sequentialHits = 0;
+    _lastPlanEnd = -1;
   }
 }
