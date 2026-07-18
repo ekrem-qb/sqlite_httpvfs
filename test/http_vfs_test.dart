@@ -48,7 +48,7 @@ void main() {
     stmt.dispose();
 
     db.execute('VACUUM');
-    db.dispose();
+    db.close();
   });
 
   tearDownAll(() {
@@ -61,7 +61,7 @@ void main() {
   var testIndex = 0;
   String nextVfsName() => 'httpvfs-test-${testIndex++}';
 
-  group('HttpVfs with SocketFetcher', () {
+  group('HttpVfs', () {
     setUp(() async {
       server = await TestServer.startWithFile(tempDbPath);
       url = server.url;
@@ -71,172 +71,81 @@ void main() {
       await server.stop();
     });
 
-    test('open and SELECT single row', () {
+    test('open and SELECT single row', () async {
       final vfsName = nextVfsName();
-      final vfs = HttpVfs(name: vfsName, fetcher: SocketFetcher());
-      sqlite3.registerVirtualFileSystem(vfs);
 
-      try {
-        final db = sqlite3.open(url, vfs: vfsName, mode: OpenMode.readOnly);
-        final results = db.select(
-          'SELECT id, title, year FROM content WHERE id = 1',
-        );
-        expect(results.length, 1);
-        expect(results.first['title'], 'Movie 1');
-        expect(results.first['year'], 2001);
-        db.dispose();
-      } finally {
-        sqlite3.unregisterVirtualFileSystem(vfs);
-      }
+      final db = await DatabaseAsyncWrapper.open(url,
+          vfsName: vfsName, mode: OpenMode.readOnly);
+      final results = await db.select(
+        'SELECT id, title, year FROM content WHERE id = 1',
+      );
+      expect(results.length, 1);
+      expect(results.first['title'], 'Movie 1');
+      expect(results.first['year'], 2001);
+      db.close();
     });
 
-    test('COUNT(*) returns 100 rows', () {
+    test('COUNT(*) returns 100 rows', () async {
       final vfsName = nextVfsName();
-      final vfs = HttpVfs(name: vfsName, fetcher: SocketFetcher());
-      sqlite3.registerVirtualFileSystem(vfs);
 
-      try {
-        final db = sqlite3.open(url, vfs: vfsName, mode: OpenMode.readOnly);
-        final results = db.select('SELECT COUNT(*) as cnt FROM content');
-        expect(results.first['cnt'], 100);
-        db.dispose();
-      } finally {
-        sqlite3.unregisterVirtualFileSystem(vfs);
-      }
+      final db = await DatabaseAsyncWrapper.open(url,
+          vfsName: vfsName, mode: OpenMode.readOnly);
+      final results = await db.select('SELECT COUNT(*) as cnt FROM content');
+      expect(results.first['cnt'], 100);
+      db.close();
     });
 
-    test('WHERE clause with index', () {
+    test('WHERE clause with index', () async {
       final vfsName = nextVfsName();
-      final vfs = HttpVfs(name: vfsName, fetcher: SocketFetcher());
-      sqlite3.registerVirtualFileSystem(vfs);
 
-      try {
-        final db = sqlite3.open(url, vfs: vfsName, mode: OpenMode.readOnly);
-        final results = db.select(
-          'SELECT COUNT(*) as cnt FROM content WHERE year = 2005',
-        );
-        expect(results.first['cnt'], greaterThan(0));
-        db.dispose();
-      } finally {
-        sqlite3.unregisterVirtualFileSystem(vfs);
-      }
+      final db = await DatabaseAsyncWrapper.open(url,
+          vfsName: vfsName, mode: OpenMode.readOnly);
+      final results = await db.select(
+        'SELECT COUNT(*) as cnt FROM content WHERE year = 2005',
+      );
+      expect(results.first['cnt'], greaterThan(0));
+      db.close();
     });
 
-    test('ORDER BY and LIMIT', () {
+    test('ORDER BY and LIMIT', () async {
       final vfsName = nextVfsName();
-      final vfs = HttpVfs(name: vfsName, fetcher: SocketFetcher());
-      sqlite3.registerVirtualFileSystem(vfs);
 
-      try {
-        final db = sqlite3.open(url, vfs: vfsName, mode: OpenMode.readOnly);
-        final results = db.select(
-          'SELECT title FROM content ORDER BY id DESC LIMIT 5',
-        );
-        expect(results.length, 5);
-        expect(results.first['title'], 'Movie 100');
-        expect(results.last['title'], 'Movie 96');
-        db.dispose();
-      } finally {
-        sqlite3.unregisterVirtualFileSystem(vfs);
-      }
+      final db = await DatabaseAsyncWrapper.open(url,
+          vfsName: vfsName, mode: OpenMode.readOnly);
+      final results = await db.select(
+        'SELECT title FROM content ORDER BY id DESC LIMIT 5',
+      );
+      expect(results.length, 5);
+      expect(results.first['title'], 'Movie 100');
+      expect(results.last['title'], 'Movie 96');
+      db.close();
     });
 
-    test('LIKE search', () {
+    test('LIKE search', () async {
       final vfsName = nextVfsName();
-      final vfs = HttpVfs(name: vfsName, fetcher: SocketFetcher());
-      sqlite3.registerVirtualFileSystem(vfs);
 
-      try {
-        final db = sqlite3.open(url, vfs: vfsName, mode: OpenMode.readOnly);
-        final results = db.select(
-          "SELECT title FROM content WHERE title LIKE '%42%'",
-        );
-        expect(results.length, 1);
-        expect(results.first['title'], 'Movie 42');
-        db.dispose();
-      } finally {
-        sqlite3.unregisterVirtualFileSystem(vfs);
-      }
+      final db = await DatabaseAsyncWrapper.open(url,
+          vfsName: vfsName, mode: OpenMode.readOnly);
+      final results = await db.select(
+        "SELECT title FROM content WHERE title LIKE '%42%'",
+      );
+      expect(results.length, 1);
+      expect(results.first['title'], 'Movie 42');
+      db.close();
     });
 
-    test('write attempt is rejected', () {
+    test('write attempt is rejected', () async {
       final vfsName = nextVfsName();
-      final vfs = HttpVfs(name: vfsName, fetcher: SocketFetcher());
-      sqlite3.registerVirtualFileSystem(vfs);
 
-      try {
-        final db = sqlite3.open(url, vfs: vfsName, mode: OpenMode.readOnly);
-        expect(
-          () => db.execute(
-            'INSERT INTO content (title, year) VALUES ("test", 2024)',
-          ),
-          throwsA(anything),
-        );
-        db.dispose();
-      } finally {
-        sqlite3.unregisterVirtualFileSystem(vfs);
-      }
-    });
-  });
-
-  group('HttpVfs with CurlFetcher', () {
-    setUp(() async {
-      server = await TestServer.startWithFile(tempDbPath);
-      url = server.url;
-    });
-
-    tearDown(() async {
-      await server.stop();
-    });
-
-    test('open and SELECT with curl', () {
-      final vfsName = nextVfsName();
-      final vfs = HttpVfs(name: vfsName, fetcher: CurlFetcher());
-      sqlite3.registerVirtualFileSystem(vfs);
-
-      try {
-        final db = sqlite3.open(url, vfs: vfsName, mode: OpenMode.readOnly);
-        final results = db.select('SELECT COUNT(*) as cnt FROM content');
-        expect(results.first['cnt'], 100);
-        db.dispose();
-      } finally {
-        sqlite3.unregisterVirtualFileSystem(vfs);
-      }
-    });
-  });
-
-  group('HttpVfs with IsolateFetcher', () {
-    late IsolateFetcher fetcher;
-
-    setUp(() async {
-      server = await TestServer.startWithFile(tempDbPath);
-      url = server.url;
-      fetcher = await IsolateFetcher.create();
-    });
-
-    tearDown(() async {
-      await fetcher.dispose();
-      await server.stop();
-    });
-
-    test('open and SELECT through isolate-bridged fetcher', () {
-      final vfsName = nextVfsName();
-      final vfs = HttpVfs(name: vfsName, fetcher: fetcher);
-      sqlite3.registerVirtualFileSystem(vfs);
-
-      try {
-        final db = sqlite3.open(url, vfs: vfsName, mode: OpenMode.readOnly);
-        final results = db.select('SELECT COUNT(*) as cnt FROM content');
-        expect(results.first['cnt'], 100);
-
-        final row = db.select(
-          'SELECT title, year FROM content WHERE id = 42',
-        );
-        expect(row.first['title'], 'Movie 42');
-        db.dispose();
-      } finally {
-        sqlite3.unregisterVirtualFileSystem(vfs);
-      }
+      final db = await DatabaseAsyncWrapper.open(url,
+          vfsName: vfsName, mode: OpenMode.readOnly);
+      expect(
+        () => db.execute(
+          'INSERT INTO content (title, year) VALUES ("test", 2024)',
+        ),
+        throwsA(anything),
+      );
+      db.close();
     });
   });
 
@@ -250,28 +159,23 @@ void main() {
       await server.stop();
     });
 
-    test('cache has hits after repeated queries', () {
+    test('cache has hits after repeated queries', () async {
       final vfsName = nextVfsName();
-      final vfs = HttpVfs(name: vfsName, fetcher: SocketFetcher());
-      sqlite3.registerVirtualFileSystem(vfs);
 
-      try {
-        final db = sqlite3.open(url, vfs: vfsName, mode: OpenMode.readOnly);
+      final db = await DatabaseAsyncWrapper.open(url,
+          vfsName: vfsName, mode: OpenMode.readOnly);
 
-        // Get the file handle to inspect cache stats
-        // First query warms cache
-        db.select('SELECT * FROM content WHERE id = 1');
-        db.select('SELECT * FROM content WHERE id = 1');
+      // Get the file handle to inspect cache stats
+      // First query warms cache
+      await db.select('SELECT * FROM content WHERE id = 1');
+      await db.select('SELECT * FROM content WHERE id = 1');
 
-        // We can't easily inspect cache stats externally, but we verify
-        // that repeated queries succeed without error
-        final results = db.select('SELECT * FROM content WHERE id = 1');
-        expect(results.length, 1);
+      // We can't easily inspect cache stats externally, but we verify
+      // that repeated queries succeed without error
+      final results = await db.select('SELECT * FROM content WHERE id = 1');
+      expect(results.length, 1);
 
-        db.dispose();
-      } finally {
-        sqlite3.unregisterVirtualFileSystem(vfs);
-      }
+      db.close();
     });
   });
 
@@ -285,10 +189,11 @@ void main() {
       await server.stop();
     });
 
-    test('file size matches actual file', () {
+    test('file size matches actual file', () async {
       final actualSize = File(tempDbPath).lengthSync();
-      final fetcher = SocketFetcher();
-      final reportedSize = fetcher.fetchFileSize(url);
+      final fetcher = AsyncHttpFetcher();
+      final reportedSize =
+          await fetcher.waitForValid(() => fetcher.fetchFileSize(url));
       expect(reportedSize, actualSize);
     });
   });
@@ -309,10 +214,13 @@ void main() {
       var offset = 0;
       var chunkId = 0;
       while (offset < dbLength) {
-        final end = offset + serverChunkSize < dbLength ? offset + serverChunkSize : dbLength;
+        final end = offset + serverChunkSize < dbLength
+            ? offset + serverChunkSize
+            : dbLength;
         final chunkBytes = dbBytes.sublist(offset, end);
         final chunkStr = chunkId.toString().padLeft(4, '0');
-        File('${chunkedDir.path}/db.sqlite3.$chunkStr').writeAsBytesSync(chunkBytes);
+        File('${chunkedDir.path}/db.sqlite3.$chunkStr')
+            .writeAsBytesSync(chunkBytes);
         offset += serverChunkSize;
         chunkId++;
       }
@@ -340,40 +248,34 @@ void main() {
       } catch (_) {}
     });
 
-    test('open and query chunked database via configUrl in VFS constructor', () {
+    test('open and query chunked database via configUrl in VFS constructor',
+        () async {
       final vfsName = nextVfsName();
       final configUrl = '${chunkedServer.url}config.json';
-      final vfs = HttpVfs(
-        name: vfsName,
-        fetcher: SocketFetcher(),
-        configUrl: configUrl,
-      );
-      sqlite3.registerVirtualFileSystem(vfs);
 
-      try {
-        final db = sqlite3.open('any_name_here', vfs: vfsName, mode: OpenMode.readOnly);
-        final results = db.select('SELECT COUNT(*) as cnt FROM content');
-        expect(results.first['cnt'], 100);
+      final db = await DatabaseAsyncWrapper.open(configUrl,
+          vfsName: vfsName, mode: OpenMode.readOnly);
+      final results = await db.select('SELECT COUNT(*) as cnt FROM content');
+      expect(results.first['cnt'], 100);
 
-        final row = db.select('SELECT id, title, year FROM content WHERE id = 1');
-        expect(row.length, 1);
-        expect(row.first['title'], 'Movie 1');
-        expect(row.first['year'], 2001);
+      final row =
+          await db.select('SELECT id, title, year FROM content WHERE id = 1');
+      expect(row.length, 1);
+      expect(row.first['title'], 'Movie 1');
+      expect(row.first['year'], 2001);
 
-        db.dispose();
-      } finally {
-        sqlite3.unregisterVirtualFileSystem(vfs);
-      }
+      db.close();
     });
 
-    test('open and query chunked database via inline config in VFS constructor', () {
+    test('open and query chunked database via inline config in VFS constructor',
+        () async {
       final vfsName = nextVfsName();
       final dbFile = File(tempDbPath);
       final dbLength = dbFile.lengthSync();
 
       final vfs = HttpVfs(
         name: vfsName,
-        fetcher: SocketFetcher(),
+        fetcher: AsyncHttpFetcher(),
         config: HttpVfsConfig(
           serverMode: 'chunked',
           requestChunkSize: 4096,
@@ -382,22 +284,20 @@ void main() {
           urlPrefix: '${chunkedServer.url}db.sqlite3.',
           suffixLength: 4,
         ),
+        configUri: Uri.parse(chunkedServer.url),
       );
-      sqlite3.registerVirtualFileSystem(vfs);
 
-      try {
-        final db = sqlite3.open('any_name_here', vfs: vfsName, mode: OpenMode.readOnly);
-        final results = db.select('SELECT COUNT(*) as cnt FROM content');
-        expect(results.first['cnt'], 100);
+      final db = await DatabaseAsyncWrapper.open('any_name_here',
+          vfs: vfs, vfsName: vfsName, mode: OpenMode.readOnly);
+      final results = await db.select('SELECT COUNT(*) as cnt FROM content');
+      expect(results.first['cnt'], 100);
 
-        final row = db.select('SELECT id, title, year FROM content WHERE id = 42');
-        expect(row.length, 1);
-        expect(row.first['title'], 'Movie 42');
+      final row =
+          await db.select('SELECT id, title, year FROM content WHERE id = 42');
+      expect(row.length, 1);
+      expect(row.first['title'], 'Movie 42');
 
-        db.dispose();
-      } finally {
-        sqlite3.unregisterVirtualFileSystem(vfs);
-      }
+      db.close();
     });
   });
 }

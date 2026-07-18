@@ -30,7 +30,8 @@ void main() {
       }
       expect(cache.length, 4);
       for (var i = 0; i < 4; i++) {
-        expect(cache.get(i * 16), equals(Uint8List.fromList(List.filled(16, i))));
+        expect(
+            cache.get(i * 16), equals(Uint8List.fromList(List.filled(16, i))));
       }
     });
 
@@ -66,7 +67,7 @@ void main() {
 
     test('putBulk splits data into pages', () {
       // 48 bytes = 3 pages of 16 bytes each
-      final data = List.generate(48, (i) => i);
+      final data = Uint8List.fromList(List.generate(48, (i) => i));
       cache.putBulk(0, data);
 
       expect(cache.length, 3);
@@ -77,7 +78,7 @@ void main() {
 
     test('putBulk handles partial trailing page', () {
       // 20 bytes = 1 full page (16) + 1 partial page (4)
-      final data = List.generate(20, (i) => i);
+      final data = Uint8List.fromList(List.generate(20, (i) => i));
       cache.putBulk(0, data);
 
       expect(cache.length, 2);
@@ -86,7 +87,7 @@ void main() {
     });
 
     test('putBulk with non-zero start offset', () {
-      final data = List.generate(32, (i) => i + 100);
+      final data = Uint8List.fromList(List.generate(32, (i) => i + 100));
       cache.putBulk(48, data);
 
       expect(cache.get(48), isNotNull);

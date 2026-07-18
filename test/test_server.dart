@@ -6,6 +6,7 @@ library;
 
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'test_certs.dart';
 
@@ -34,7 +35,7 @@ class TestServer {
 
   /// Start a test server serving [data] bytes.
   static Future<TestServer> startWithData(
-    List<int> data, {
+    Uint8List data, {
     bool https = false,
   }) async {
     return _start({'type': 'data', 'data': data, 'https': https});
@@ -92,11 +93,12 @@ void _serverEntryPoint(Map<String, Object> config) async {
   final isDirectory = config['type'] == 'directory';
   final dirPath = isDirectory ? config['path'] as String : null;
 
-  List<int>? fileBytes;
+  Uint8List? fileBytes;
   if (config['type'] == 'file') {
-    fileBytes = File(config['path'] as String).readAsBytesSync();
+    fileBytes =
+        Uint8List.sublistView(File(config['path'] as String).readAsBytesSync());
   } else if (config['type'] == 'data') {
-    fileBytes = config['data'] as List<int>;
+    fileBytes = config['data'] as Uint8List;
   }
 
   final useHttps = config['https'] as bool? ?? false;
@@ -123,10 +125,18 @@ void _serverEntryPoint(Map<String, Object> config) async {
     }
   });
 
-  await for (final request in server) {
+  server.listen((request) async {
     final response = request.response;
 
-    List<int> currentBytes;
+    final delayStr = request.uri.queryParameters['delay'];
+    if (delayStr != null) {
+      final delayMs = int.tryParse(delayStr);
+      if (delayMs != null && delayMs > 0) {
+        await Future<void>.delayed(Duration(milliseconds: delayMs));
+      }
+    }
+
+    Uint8List currentBytes;
     if (isDirectory) {
       var reqPath = request.uri.path;
       if (reqPath.startsWith('/')) {
@@ -136,9 +146,9 @@ void _serverEntryPoint(Map<String, Object> config) async {
       if (!file.existsSync()) {
         response.statusCode = 404;
         await response.close();
-        continue;
+        return;
       }
-      currentBytes = file.readAsBytesSync();
+      currentBytes = Uint8List.sublistView(file.readAsBytesSync());
     } else {
       currentBytes = fileBytes!;
     }
@@ -148,7 +158,7 @@ void _serverEntryPoint(Map<String, Object> config) async {
       response.headers.contentLength = currentBytes.length;
       response.headers.set('accept-ranges', 'bytes');
       await response.close();
-      continue;
+      return;
     }
 
     final rangeHeader = request.headers.value('range');
@@ -157,7 +167,8 @@ void _serverEntryPoint(Map<String, Object> config) async {
       if (match != null) {
         final start = int.parse(match.group(1)!);
         final end = int.parse(match.group(2)!);
-        final clampedEnd = end >= currentBytes.length ? currentBytes.length - 1 : end;
+        final clampedEnd =
+            end >= currentBytes.length ? currentBytes.length - 1 : end;
 
         response.statusCode = 206;
         response.headers.contentLength = clampedEnd - start + 1;
@@ -167,7 +178,7 @@ void _serverEntryPoint(Map<String, Object> config) async {
         );
         response.add(currentBytes.sublist(start, clampedEnd + 1));
         await response.close();
-        continue;
+        return;
       }
     }
 
@@ -176,5 +187,5 @@ void _serverEntryPoint(Map<String, Object> config) async {
     response.headers.contentLength = currentBytes.length;
     response.add(currentBytes);
     await response.close();
-  }
+  });
 }
